@@ -2,11 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 
 const titles = { tasks: 'Tasks', today: 'Today', completed: 'Completed', settings: 'Settings' };
 const initialForm = { title: '', description: '', dueDate: '', dueTime: '', category: 'Uncategorized' };
+const pad = (value) => String(value).padStart(2, '0');
+const localDateValue = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 
 export default function App() {
   const [view, setView] = useState('tasks');
   const [settings, setSettings] = useState({ vaultPath: null, failedEvents: 0 });
   const [tasks, setTasks] = useState([]);
+  const [category, setCategory] = useState('All');
   const [form, setForm] = useState(null);
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
@@ -14,9 +17,10 @@ export default function App() {
   const refresh = useCallback(async () => {
     const settingsResult = await window.studyVault.settings.get();
     if (settingsResult.ok) setSettings(settingsResult.data);
-    const taskResult = await window.studyVault.tasks.list({ view });
+    const taskResult = await window.studyVault.tasks.list({ view, category });
     if (taskResult.ok) setTasks(taskResult.data);
-  }, [view]);
+    else setError(taskResult.error);
+  }, [view, category]);
 
   useEffect(() => {
     refresh();
@@ -44,14 +48,22 @@ export default function App() {
     setForm(null); setEditing(null); await refresh();
   }
 
-  async function complete(task) { await window.studyVault.tasks.complete(task.id); await refresh(); }
-  async function reopen(task) { await window.studyVault.tasks.reopen(task.id); await refresh(); }
-  async function remove(task) { if (confirm(`Delete “${task.title}”?`)) { await window.studyVault.tasks.delete(task.id); await refresh(); } }
+  async function changeTask(method, task) {
+    const result = await window.studyVault.tasks[method](task.id);
+    if (!result.ok) return setError(result.error);
+    if (result.data?.deliveryState === 'Failed') setError('Task saved, but the Obsidian log failed. Use Retry All in Settings.');
+    else setError('');
+    await refresh();
+  }
+  async function complete(task) { await changeTask('complete', task); }
+  async function reopen(task) { await changeTask('reopen', task); }
+  async function remove(task) { if (confirm(`Delete “${task.title}”?`)) await changeTask('delete', task); }
   function edit(task) {
     const due = task.due_at ? new Date(task.due_at) : null;
-    setEditing(task); setForm({ title: task.title, description: task.description || '', dueDate: due ? due.toISOString().slice(0, 10) : '', dueTime: due ? due.toTimeString().slice(0, 5) : '', category: task.category });
+    setEditing(task); setForm({ title: task.title, description: task.description || '', dueDate: due ? localDateValue(due) : '', dueTime: due ? `${pad(due.getHours())}:${pad(due.getMinutes())}` : '', category: task.category });
   }
   function overdue(task) { return task.due_at && new Date(task.due_at) < new Date() && task.status === 'Active'; }
+  const categories = [...new Set([...tasks.map((task) => task.category), ...(category === 'All' ? [] : [category])])].sort();
 
   return (
     <div className="app-shell">
@@ -64,14 +76,14 @@ export default function App() {
         <header><div><span className="eyebrow">Schoolwork</span><h1>{titles[view]}</h1></div>{view !== 'completed' && view !== 'settings' && <button className="primary" disabled={!settings.vaultPath} onClick={() => { setEditing(null); setForm(initialForm); }}>New task</button>}</header>
         {error && <p className="error" role="alert">{error}</p>}
         {!settings.vaultPath && view !== 'settings' && <section className="notice"><h3>Choose an Obsidian vault</h3><p>Tasks stay disabled until StudyVault can create append-only activity records.</p><button className="primary" onClick={chooseVault}>Choose vault</button></section>}
-        {view === 'settings' ? <Settings settings={settings} chooseVault={chooseVault} retry={async () => { await window.studyVault.events.retryAll(); await refresh(); }} /> : (
-          <section className="task-list">{tasks.length === 0 ? <p className="empty">Nothing here yet.</p> : tasks.map((task) => (
+        {view === 'settings' ? <Settings settings={settings} chooseVault={chooseVault} retry={async () => { const result = await window.studyVault.events.retryAll(); if (!result.ok) setError(result.error); else setError(`Retry finished: ${result.data.written} written, ${result.data.failed} failed.`); await refresh(); }} /> : (
+          <><label className="filter">Category<select aria-label="Category filter" value={category} onChange={(event) => setCategory(event.target.value)}><option>All</option>{categories.map((name) => <option key={name}>{name}</option>)}</select></label><section className="task-list">{tasks.length === 0 ? <p className="empty">Nothing here yet.</p> : tasks.map((task) => (
             <article className="task-card" key={task.id}>
-              <button className="check" aria-label={`${task.status === 'Completed' ? 'Reopen' : 'Complete'} ${task.title}`} onClick={() => task.status === 'Completed' ? reopen(task) : complete(task)}>{task.status === 'Completed' ? '↻' : '✓'}</button>
+              <button disabled={!settings.vaultPath} className="check" aria-label={`${task.status === 'Completed' ? 'Reopen' : 'Complete'} ${task.title}`} onClick={() => task.status === 'Completed' ? reopen(task) : complete(task)}>{task.status === 'Completed' ? '↻' : '✓'}</button>
               <div><h3>{task.title}</h3><p><span className="tag">{task.category}</span>{task.due_at && <span className={overdue(task) ? 'overdue' : ''}>{overdue(task) ? '⚠ Overdue · ' : 'Due · '}{new Date(task.due_at).toLocaleString()}</span>}</p>{task.description && <small>{task.description}</small>}</div>
-              <div className="actions"><button onClick={() => edit(task)}>Edit</button><button onClick={() => remove(task)}>Delete</button></div>
+              <div className="actions"><button disabled={!settings.vaultPath} onClick={() => edit(task)}>Edit</button><button disabled={!settings.vaultPath} onClick={() => remove(task)}>Delete</button></div>
             </article>
-          ))}</section>
+          ))}</section></>
         )}
       </main>
       {form && <div className="overlay"><form className="dialog" onSubmit={saveTask}><h2>{editing ? 'Edit task' : 'New task'}</h2><label>Title<input autoFocus value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></label><label>Description<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label><div className="row"><label>Due date<input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></label><label>Due time<input type="time" value={form.dueTime} onChange={(e) => setForm({ ...form, dueTime: e.target.value })} /></label></div><label>Category<input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></label><div className="dialog-actions"><button type="button" onClick={() => setForm(null)}>Cancel</button><button className="primary" type="submit">Save task</button></div></form></div>}

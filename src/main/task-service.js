@@ -66,6 +66,7 @@ export function createTaskService(db, now = () => new Date().toISOString()) {
 
   function changeStatus(id, status, eventType) {
     const task = taskRow(id); if (!task) throw new Error('Task not found');
+    if (task.status === status) return task;
     const write = db.transaction(() => {
       const stamp = now(); db.prepare('UPDATE tasks SET status=?,updated_at=?,completed_at=? WHERE id=?').run(status, stamp, status === 'Completed' ? stamp : null, id);
       return addEvent(eventType, taskRow(id), status);

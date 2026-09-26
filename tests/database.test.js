@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
 import { openDatabase } from '../src/main/database.js';
 
 const tempDirectories = [];
@@ -31,5 +32,16 @@ describe('openDatabase', () => {
     expect(second.prepare('SELECT name FROM categories WHERE id = ?').get('cat-test').name).toBe('Testing');
     expect(first.pragma('journal_mode', { simple: true }).toLowerCase()).toBe('wal');
     first.close(); second.close();
+  });
+
+  it('rejects a future schema before changing it', () => {
+    const databasePath = newDatabasePath();
+    const seed = new Database(databasePath);
+    seed.exec('CREATE TABLE schema_info (version INTEGER PRIMARY KEY); INSERT INTO schema_info(version) VALUES (2);');
+    seed.close();
+    expect(() => openDatabase(databasePath)).toThrow('Unsupported StudyVault schema version: 2');
+    const check = new Database(databasePath);
+    expect(check.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'").get()).toBeUndefined();
+    check.close();
   });
 });

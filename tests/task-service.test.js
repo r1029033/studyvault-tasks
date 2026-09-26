@@ -25,7 +25,8 @@ describe('task service', () => {
     const { db, service } = setup();
     const created = service.createTask({ title: 'Write report', category: 'Design', dueAt: '2026-09-26T18:00:00.000Z' });
     service.updateTask(created.id, { title: 'Write final report', description: 'Add links', category: 'Design', dueAt: created.dueAt });
-    service.completeTask(created.id); service.reopenTask(created.id); service.deleteTask(created.id);
+    service.completeTask(created.id); service.completeTask(created.id);
+    service.reopenTask(created.id); service.reopenTask(created.id); service.deleteTask(created.id);
     expect(db.prepare('SELECT count(*) count FROM tasks').get().count).toBe(0);
     expect(db.prepare('SELECT event_type FROM log_events ORDER BY rowid').all().map((r) => r.event_type)).toEqual(['task.created','task.edited','task.completed','task.reopened','task.deleted']);
     db.close();
