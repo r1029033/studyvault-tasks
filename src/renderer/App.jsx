@@ -1,17 +1,84 @@
+import { useCallback, useEffect, useState } from 'react';
+
+const titles = { tasks: 'Tasks', today: 'Today', completed: 'Completed', settings: 'Settings' };
+const initialForm = { title: '', description: '', dueDate: '', dueTime: '', category: 'Uncategorized' };
+
 export default function App() {
+  const [view, setView] = useState('tasks');
+  const [settings, setSettings] = useState({ vaultPath: null, failedEvents: 0 });
+  const [tasks, setTasks] = useState([]);
+  const [form, setForm] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [error, setError] = useState('');
+
+  const refresh = useCallback(async () => {
+    const settingsResult = await window.studyVault.settings.get();
+    if (settingsResult.ok) setSettings(settingsResult.data);
+    const taskResult = await window.studyVault.tasks.list({ view });
+    if (taskResult.ok) setTasks(taskResult.data);
+  }, [view]);
+
+  useEffect(() => {
+    refresh();
+    const timer = setInterval(refresh, 1000);
+    window.addEventListener('focus', refresh);
+    return () => { clearInterval(timer); window.removeEventListener('focus', refresh); };
+  }, [refresh]);
+
+  async function chooseVault() {
+    const result = await window.studyVault.settings.chooseVault();
+    if (result.ok && result.data) { setSettings(result.data); setError(''); }
+    else if (!result.ok) setError(result.error);
+  }
+
+  async function saveTask(event) {
+    event.preventDefault();
+    if (!form.title.trim()) return setError('Task title is required');
+    if (form.dueTime && !form.dueDate) return setError('Choose a due date before a due time');
+    const dueAt = form.dueDate ? new Date(`${form.dueDate}T${form.dueTime || '23:59'}`).toISOString() : null;
+    const input = { title: form.title, description: form.description, category: form.category, dueAt };
+    const result = editing ? await window.studyVault.tasks.update(editing.id, input) : await window.studyVault.tasks.create(input);
+    if (!result.ok) return setError(result.error);
+    if (result.data?.deliveryState === 'Failed') setError('Task saved, but the Obsidian log failed. Use Retry All in Settings.');
+    else setError('');
+    setForm(null); setEditing(null); await refresh();
+  }
+
+  async function complete(task) { await window.studyVault.tasks.complete(task.id); await refresh(); }
+  async function reopen(task) { await window.studyVault.tasks.reopen(task.id); await refresh(); }
+  async function remove(task) { if (confirm(`Delete “${task.title}”?`)) { await window.studyVault.tasks.delete(task.id); await refresh(); } }
+  function edit(task) {
+    const due = task.due_at ? new Date(task.due_at) : null;
+    setEditing(task); setForm({ title: task.title, description: task.description || '', dueDate: due ? due.toISOString().slice(0, 10) : '', dueTime: due ? due.toTimeString().slice(0, 5) : '', category: task.category });
+  }
+  function overdue(task) { return task.due_at && new Date(task.due_at) < new Date() && task.status === 'Active'; }
+
   return (
     <div className="app-shell">
-      <aside>
-        <strong>StudyVault Tasks</strong>
-        <button type="button">Tasks</button>
-        <button type="button">Today</button>
-        <button type="button">Completed</button>
-        <button type="button">Settings</button>
+      <aside className="sidebar">
+        <div><span className="eyebrow">StudyVault</span><h2>Tasks</h2></div>
+        <nav>{['tasks','today','completed','settings'].map((name) => <button className={view === name ? 'active' : ''} key={name} onClick={() => setView(name)}>{titles[name]}</button>)}</nav>
+        <p className="vault-state">{settings.vaultPath ? '● Vault connected' : '○ Vault not selected'}</p>
       </aside>
       <main>
-        <h1>Tasks</h1>
-        <button type="button">New task</button>
+        <header><div><span className="eyebrow">Schoolwork</span><h1>{titles[view]}</h1></div>{view !== 'completed' && view !== 'settings' && <button className="primary" disabled={!settings.vaultPath} onClick={() => { setEditing(null); setForm(initialForm); }}>New task</button>}</header>
+        {error && <p className="error" role="alert">{error}</p>}
+        {!settings.vaultPath && view !== 'settings' && <section className="notice"><h3>Choose an Obsidian vault</h3><p>Tasks stay disabled until StudyVault can create append-only activity records.</p><button className="primary" onClick={chooseVault}>Choose vault</button></section>}
+        {view === 'settings' ? <Settings settings={settings} chooseVault={chooseVault} retry={async () => { await window.studyVault.events.retryAll(); await refresh(); }} /> : (
+          <section className="task-list">{tasks.length === 0 ? <p className="empty">Nothing here yet.</p> : tasks.map((task) => (
+            <article className="task-card" key={task.id}>
+              <button className="check" aria-label={`${task.status === 'Completed' ? 'Reopen' : 'Complete'} ${task.title}`} onClick={() => task.status === 'Completed' ? reopen(task) : complete(task)}>{task.status === 'Completed' ? '↻' : '✓'}</button>
+              <div><h3>{task.title}</h3><p><span className="tag">{task.category}</span>{task.due_at && <span className={overdue(task) ? 'overdue' : ''}>{overdue(task) ? '⚠ Overdue · ' : 'Due · '}{new Date(task.due_at).toLocaleString()}</span>}</p>{task.description && <small>{task.description}</small>}</div>
+              <div className="actions"><button onClick={() => edit(task)}>Edit</button><button onClick={() => remove(task)}>Delete</button></div>
+            </article>
+          ))}</section>
+        )}
       </main>
+      {form && <div className="overlay"><form className="dialog" onSubmit={saveTask}><h2>{editing ? 'Edit task' : 'New task'}</h2><label>Title<input autoFocus value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></label><label>Description<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label><div className="row"><label>Due date<input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></label><label>Due time<input type="time" value={form.dueTime} onChange={(e) => setForm({ ...form, dueTime: e.target.value })} /></label></div><label>Category<input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></label><div className="dialog-actions"><button type="button" onClick={() => setForm(null)}>Cancel</button><button className="primary" type="submit">Save task</button></div></form></div>}
     </div>
   );
+}
+
+function Settings({ settings, chooseVault, retry }) {
+  return <div className="settings-grid"><section className="settings-card"><h3>Obsidian vault</h3><p>{settings.vaultPath || 'No vault selected'}</p><button onClick={chooseVault}>Change vault</button></section><section className="settings-card"><h3>Event delivery</h3><p>Failed events: {settings.failedEvents}</p><button onClick={retry}>Retry All</button></section></div>;
 }
