@@ -1,0 +1,6 @@
+:root { font-family: 'Segoe UI', sans-serif; color: #17211d; background: #f5f3ec; }
+body { margin: 0; }
+button { font: inherit; }
+.app-shell { min-height: 100vh; display: grid; grid-template-columns: 220px 1fr; }
+aside { padding: 24px; background: #ecebe3; display: grid; align-content: start; gap: 10px; }
+main { padding: 36px; }
