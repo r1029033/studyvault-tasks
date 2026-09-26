@@ -18,6 +18,7 @@ describe('StudyVault Tasks interface', () => {
     render(<App />);
     expect(await screen.findByText(/choose an Obsidian vault/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'New task' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Complete Write report' })).toBeDisabled();
   });
 
   it('shows tasks and completes one', async () => {

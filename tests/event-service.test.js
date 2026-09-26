@@ -20,6 +20,9 @@ describe('task event delivery', () => {
     expect(text).toContain('event_id: evt-1');
     expect(text).toContain('event_type: task.created');
     expect(text).toContain('title: Write report');
+    const midnight = formatTaskEvent({ id: 'evt-2', eventType: 'task.created', occurredAt: '2026-09-26T23:30:00.000Z', timezoneOffset: '+02:00', sourceApp: 'StudyVault Tasks', taskId: 'task-2', status: 'Active', title: 'Late work', category: 'Design' });
+    expect(midnight).toContain('date: 2026-09-27');
+    expect(midnight).toContain('time: 01:30:00');
   });
 
   it('appends once and treats an existing event id as delivered', () => {
