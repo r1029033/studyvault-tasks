@@ -1,9 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
+import studyBuddyImage from '../assets/studybuddy.png';
 
 const titles = { tasks: 'Tasks', today: 'Today', completed: 'Completed', settings: 'Settings' };
 const initialForm = { title: '', description: '', dueDate: '', dueTime: '', category: 'Uncategorized' };
 const pad = (value) => String(value).padStart(2, '0');
 const localDateValue = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+const studyTips = [
+  'Start with a two-minute task to build momentum.',
+  'Turn a big assignment into the next smallest action.',
+  'Study for 25 minutes, then take a five-minute break.',
+  'Put your most important task at the top of the list.',
+  'Close extra tabs before a focused study session.',
+  'Review new material once today and once tomorrow.',
+  'Give every task a clear verb: write, read, solve, or review.',
+  'Estimate how long a task will take before you begin.',
+  'Group similar small tasks and finish them together.',
+  'End your session by choosing tomorrow\'s first task.',
+];
+
+function randomTip(exclude = '') {
+  const choices = studyTips.filter((tip) => tip !== exclude);
+  return choices[Math.floor(Math.random() * choices.length)];
+}
 
 export default function App() {
   const [view, setView] = useState('tasks');
@@ -13,6 +31,7 @@ export default function App() {
   const [form, setForm] = useState(null);
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
+  const [studyTip, setStudyTip] = useState(() => randomTip());
 
   const refresh = useCallback(async () => {
     const settingsResult = await window.studyVault.settings.get();
@@ -70,6 +89,14 @@ export default function App() {
       <aside className="sidebar">
         <div><span className="eyebrow">StudyVault</span><h2>Tasks</h2></div>
         <nav>{['tasks','today','completed','settings'].map((name) => <button className={view === name ? 'active' : ''} key={name} onClick={() => setView(name)}>{titles[name]}</button>)}</nav>
+        <section className="study-buddy" aria-labelledby="study-buddy-title">
+          <div className="buddy-tip" aria-live="polite">
+            <span className="eyebrow" id="study-buddy-title">StudyBuddy says</span>
+            <p>{studyTip}</p>
+          </div>
+          <img src={studyBuddyImage} alt="StudyBuddy, a bunny reading a notebook" />
+          <button type="button" onClick={() => setStudyTip(randomTip(studyTip))}>New tip</button>
+        </section>
         <p className="vault-state">{settings.vaultPath ? '● Vault connected' : '○ Vault not selected'}</p>
       </aside>
       <main>
